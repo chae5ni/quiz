@@ -12,6 +12,9 @@
     />
     <link rel="stylesheet" href="./styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+    <script>
+      window.SUPABASE_PUBLISHABLE_KEY = "여기에 Publishable key";
+    </script>
   </head>
   <body>
     <main class="app-shell">
@@ -20,14 +23,13 @@
           <p class="eyebrow">Daily bite-sized learning</p>
           <h1>1분 IT 퀴즈</h1>
           <p class="hero-text">
-            출근 전에 1문제. 최신 기술 트렌드와 개발 문법을 가볍게 익히고,
-            스트릭으로 매일 이어가세요.
+            매일 아침 5문제로 감을 끌어올리고, 원하면 무제한 모드로 계속 이어가세요.
           </p>
         </div>
         <div class="hero-stats">
           <article class="stat-chip">
-            <span>오늘의 난이도</span>
-            <strong id="difficultyChip">-</strong>
+            <span>현재 모드</span>
+            <strong id="modeChip">Daily 5</strong>
           </article>
           <article class="stat-chip accent">
             <span>내 스트릭</span>
@@ -42,35 +44,29 @@
             <p class="section-label">TODAY</p>
             <h2 id="quizDateLabel">오늘의 문제</h2>
           </div>
-          <button id="notifyButton" class="ghost-button" type="button">
-            알림 받기
-          </button>
+          <button id="notifyButton" class="ghost-button" type="button">알림 받기</button>
         </div>
 
         <article id="quizCard" class="quiz-card">
           <div class="quiz-meta">
-            <span id="categoryBadge" class="badge">Trend</span>
+            <span id="categoryBadge" class="badge">Quiz</span>
             <span id="comboBadge" class="combo-badge">Combo x0</span>
           </div>
 
           <div class="swipe-hint">
-            <span>좌우로 넘기거나 아래 버튼으로 답하세요</span>
+            <span id="progressLabel">1 / 5 진행 중</span>
           </div>
 
           <div class="question-block">
-            <p id="questionLabel" class="question-label">Q.</p>
+            <p class="question-label">Q.</p>
             <h3 id="questionText">문제를 불러오는 중...</h3>
           </div>
 
           <div id="choiceList" class="choice-list"></div>
 
           <div class="action-row">
-            <button id="skipButton" class="secondary-button" type="button">
-              내일 다시 보기
-            </button>
-            <button id="submitButton" class="primary-button" type="button">
-              정답 확인
-            </button>
+            <button id="skipButton" class="secondary-button" type="button">건너뛰기</button>
+            <button id="submitButton" class="primary-button" type="button">정답 확인</button>
           </div>
         </article>
 
@@ -82,8 +78,8 @@
           </div>
           <div class="result-stats">
             <div>
-              <span>정답률 감성</span>
-              <strong id="personaText">상위 1% 감각</strong>
+              <span>퀴즈 페르소나</span>
+              <strong id="personaText">오늘의 트렌드 캐처</strong>
             </div>
             <div>
               <span>현재 스트릭</span>
@@ -91,12 +87,22 @@
             </div>
           </div>
           <div class="result-actions">
-            <button id="shareButton" class="primary-button" type="button">
-              결과 이미지 저장
-            </button>
-            <button id="reviewButton" class="secondary-button" type="button">
-              오답 노트 보기
-            </button>
+            <button id="nextButton" class="primary-button" type="button">다음 문제</button>
+            <button id="shareButton" class="secondary-button" type="button">결과 이미지 저장</button>
+          </div>
+        </article>
+
+        <article id="modePanel" class="result-panel hidden">
+          <div class="result-main">
+            <p class="result-tag">Daily Clear</p>
+            <h3 id="modeTitle">오늘의 5문제를 모두 풀었어요</h3>
+            <p class="result-explanation">
+              계속 감을 유지하고 싶다면 무제한 모드로 랜덤 문제를 이어서 풀 수 있어요.
+            </p>
+          </div>
+          <div class="result-actions">
+            <button id="infiniteButton" class="primary-button" type="button">더 풀기</button>
+            <button id="reviewButton" class="secondary-button" type="button">오답 노트 보기</button>
           </div>
         </article>
       </section>

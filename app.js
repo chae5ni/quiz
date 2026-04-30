@@ -1,40 +1,41 @@
-const STORAGE_KEY = "one-minute-it-quiz-state-v2";
+const STORAGE_KEY = "one-minute-it-quiz-state-v3";
 const SUPABASE_URL = "https://inpozrhlofyhenqfucy.supabase.co";
-const SUPABASE_KEY = window.SUPABASE_PUBLISHABLE_KEY || "복사한_Publishable_key를_여기에_넣으세요";
+const SUPABASE_KEY = window.SUPABASE_PUBLISHABLE_KEY || "여기에 Publishable key";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentMode = "daily";
 
 const state = {
   quizzes: [],
-  todayQuiz: null,
+  currentIndex: 0,
+  currentQuiz: null,
   selectedChoice: null,
   isAnswered: false,
   store: loadStore(),
-  drag: {
-    active: false,
-    startX: 0,
-    currentX: 0,
-  },
 };
 
 const elements = {
-  difficultyChip: document.getElementById("difficultyChip"),
+  modeChip: document.getElementById("modeChip"),
   streakCount: document.getElementById("streakCount"),
   quizDateLabel: document.getElementById("quizDateLabel"),
   categoryBadge: document.getElementById("categoryBadge"),
   comboBadge: document.getElementById("comboBadge"),
+  progressLabel: document.getElementById("progressLabel"),
   questionText: document.getElementById("questionText"),
   choiceList: document.getElementById("choiceList"),
   submitButton: document.getElementById("submitButton"),
   skipButton: document.getElementById("skipButton"),
   notifyButton: document.getElementById("notifyButton"),
-  quizCard: document.getElementById("quizCard"),
   resultPanel: document.getElementById("resultPanel"),
   resultTag: document.getElementById("resultTag"),
   resultTitle: document.getElementById("resultTitle"),
   resultExplanation: document.getElementById("resultExplanation"),
   resultStreak: document.getElementById("resultStreak"),
   personaText: document.getElementById("personaText"),
+  nextButton: document.getElementById("nextButton"),
   shareButton: document.getElementById("shareButton"),
+  modePanel: document.getElementById("modePanel"),
+  infiniteButton: document.getElementById("infiniteButton"),
   reviewButton: document.getElementById("reviewButton"),
   wrongNoteList: document.getElementById("wrongNoteList"),
   wrongCount: document.getElementById("wrongCount"),
@@ -49,15 +50,26 @@ init().catch((error) => {
 async function init() {
   bindEvents();
   renderWrongNotes();
+  renderHeader();
   await loadQuizzes();
 }
 
 async function loadQuizzes() {
-  const { data, error } = await supabaseClient
-    .from("quizzes")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(1);
+  let query = supabaseClient.from("quizzes").select("*");
+
+  if (currentMode === "daily") {
+    const today = getTodayKey();
+    query = query
+      .gte("created_at", `${today}T00:00:00`)
+      .lt("created_at", `${today}T23:59:59.999`)
+      .order("daily_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(5);
+  } else {
+    query = query.order("created_at", { ascending: false }).limit(50);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error("데이터 로드 실패:", error);
@@ -65,20 +77,28 @@ async function loadQuizzes() {
     return;
   }
 
-  if (!data || !data.length) {
-    elements.questionText.textContent = "등록된 퀴즈가 아직 없어요.";
+  const quizzes = (data || []).map(normalizeQuizRecord);
+  if (!quizzes.length) {
+    elements.questionText.textContent =
+      currentMode === "daily" ? "오늘 생성된 문제 5개가 아직 없어요." : "추가로 가져올 문제가 없어요.";
     return;
   }
 
-  state.quizzes = data.map(normalizeQuizRecord);
-  state.todayQuiz = state.quizzes[0];
+  state.quizzes = currentMode === "daily" ? quizzes : shuffle(quizzes);
+  state.currentIndex = 0;
+  state.currentQuiz = state.quizzes[0];
+  state.isAnswered = false;
+  state.selectedChoice = null;
+
+  hideResult();
+  hideModePanel();
   renderHeader();
   renderQuiz();
 }
 
 function normalizeQuizRecord(record) {
   return {
-    id: record.id ?? `quiz-${Date.now()}`,
+    id: record.id ?? `quiz-${Math.random().toString(36).slice(2)}`,
     category: record.category ?? "IT Quiz",
     difficulty: record.difficulty ?? "Daily",
     question: record.question ?? "질문이 비어 있어요.",
@@ -98,6 +118,10 @@ function normalizeChoices(record) {
   const choices = candidateKeys.map((key) => record[key]).filter(Boolean);
   if (choices.length) {
     return choices;
+  }
+
+  if (record.answer === "O" || record.answer === "X") {
+    return ["O", "X"];
   }
 
   return [record.answer ?? "정답"];
@@ -120,7 +144,7 @@ function createInitialStore() {
     streak: 0,
     combo: 0,
     lastSolvedDate: null,
-    answeredDates: {},
+    solvedQuizIds: {},
     wrongNotes: [],
   };
 }
@@ -130,31 +154,29 @@ function saveStore() {
 }
 
 function renderHeader() {
-  if (!state.todayQuiz) {
-    return;
-  }
-  elements.difficultyChip.textContent = state.todayQuiz.difficulty;
+  elements.modeChip.textContent = currentMode === "daily" ? "Daily 5" : "Infinite";
   elements.streakCount.textContent = state.store.streak;
   elements.resultStreak.textContent = state.store.streak;
   elements.comboBadge.textContent = `Combo x${state.store.combo}`;
-  elements.quizDateLabel.textContent = `${formatDateLabel(new Date())} 퀴즈`;
+  elements.quizDateLabel.textContent =
+    currentMode === "daily" ? `${formatDateLabel(new Date())} 퀴즈` : "무제한 퀴즈";
 }
 
 function renderQuiz() {
-  if (!state.todayQuiz) {
+  const quiz = state.currentQuiz;
+  if (!quiz) {
     return;
   }
 
-  const answerKey = getTodayAnswerKey();
-  const alreadyAnswered = state.store.answeredDates[answerKey];
-  state.isAnswered = Boolean(alreadyAnswered);
-  state.selectedChoice = alreadyAnswered?.selectedChoice ?? null;
+  elements.categoryBadge.textContent = quiz.category;
+  elements.questionText.textContent = quiz.question;
+  elements.progressLabel.textContent =
+    currentMode === "daily"
+      ? `${Math.min(state.currentIndex + 1, 5)} / 5 진행 중`
+      : `${state.currentIndex + 1}번째 무제한 문제`;
 
-  elements.categoryBadge.textContent = state.todayQuiz.category;
-  elements.questionText.textContent = state.todayQuiz.question;
   elements.choiceList.innerHTML = "";
-
-  state.todayQuiz.choices.forEach((choice, index) => {
+  quiz.choices.forEach((choice, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "choice-button";
@@ -163,9 +185,12 @@ function renderQuiz() {
     elements.choiceList.appendChild(button);
   });
 
-  if (alreadyAnswered) {
-    showAnsweredState(alreadyAnswered);
+  const solved = state.store.solvedQuizIds[getSolvedKey(quiz.id)];
+  if (solved) {
+    showAnsweredState(solved);
   } else {
+    state.isAnswered = false;
+    state.selectedChoice = null;
     hideResult();
   }
 }
@@ -181,22 +206,24 @@ function selectChoice(choice, button) {
 
 function bindEvents() {
   elements.submitButton.addEventListener("click", submitAnswer);
-  elements.skipButton.addEventListener("click", () => {
-    window.alert("오늘은 건너뛰었어요. 스트릭을 지키려면 내일 다시 와주세요.");
-  });
+  elements.skipButton.addEventListener("click", advanceToNextQuiz);
   elements.notifyButton.addEventListener("click", () => {
-    window.alert("MVP에서는 실제 푸시 대신 온보딩만 넣어두었어요. 다음 단계에서 웹 푸시나 앱 푸시로 확장하면 됩니다.");
+    window.alert("MVP에서는 실제 푸시 대신 온보딩만 제공해요. 다음 단계에서 웹 푸시나 앱 푸시로 연결하면 됩니다.");
   });
-  elements.shareButton.addEventListener("click", downloadShareImage);
+  elements.nextButton.addEventListener("click", advanceToNextQuiz);
+  elements.infiniteButton.addEventListener("click", async () => {
+    currentMode = "infinite";
+    await loadQuizzes();
+  });
   elements.reviewButton.addEventListener("click", () => {
     document.querySelector(".notes-section").scrollIntoView({ behavior: "smooth" });
   });
-
-  bindSwipe(elements.quizCard);
+  elements.shareButton.addEventListener("click", downloadShareImage);
 }
 
 function submitAnswer() {
-  if (state.isAnswered || !state.todayQuiz) {
+  const quiz = state.currentQuiz;
+  if (!quiz || state.isAnswered) {
     return;
   }
   if (!state.selectedChoice) {
@@ -204,8 +231,8 @@ function submitAnswer() {
     return;
   }
 
-  const isCorrect = state.selectedChoice === state.todayQuiz.answer;
-  updateProgress(isCorrect);
+  const isCorrect = state.selectedChoice === quiz.answer;
+  updateProgress(isCorrect, quiz);
 
   const solved = {
     selectedChoice: state.selectedChoice,
@@ -213,17 +240,21 @@ function submitAnswer() {
     solvedAt: new Date().toISOString(),
   };
 
-  state.store.answeredDates[getTodayAnswerKey()] = solved;
+  state.store.solvedQuizIds[getSolvedKey(quiz.id)] = solved;
   saveStore();
   showAnsweredState(solved);
   renderWrongNotes();
 }
 
-function updateProgress(isCorrect) {
+function updateProgress(isCorrect, quiz) {
+  const today = getTodayKey();
   const yesterday = getRelativeDayKey(-1);
   const solvedYesterday = state.store.lastSolvedDate === yesterday;
 
-  state.store.streak = solvedYesterday ? state.store.streak + 1 : 1;
+  if (currentMode === "daily") {
+    state.store.streak = solvedYesterday ? state.store.streak + 1 : 1;
+    state.store.lastSolvedDate = today;
+  }
 
   if (isCorrect) {
     state.store.combo += 1;
@@ -231,41 +262,43 @@ function updateProgress(isCorrect) {
     state.store.combo = 0;
     state.store.wrongNotes = [
       {
-        id: getTodayAnswerKey(),
-        date: getTodayKey(),
-        question: state.todayQuiz.question,
+        id: getSolvedKey(quiz.id),
+        date: today,
+        question: quiz.question,
         selectedChoice: state.selectedChoice,
-        answer: state.todayQuiz.answer,
-        explanation: state.todayQuiz.explanation,
+        answer: quiz.answer,
+        explanation: quiz.explanation,
       },
-      ...state.store.wrongNotes.filter((item) => item.id !== getTodayAnswerKey()),
-    ].slice(0, 20);
+      ...state.store.wrongNotes.filter((item) => item.id !== getSolvedKey(quiz.id)),
+    ].slice(0, 50);
   }
 
-  state.store.lastSolvedDate = getTodayKey();
   saveStore();
 }
 
 function showAnsweredState(result) {
-  state.isAnswered = true;
-  const isCorrect = result.isCorrect;
+  const quiz = state.currentQuiz;
+  if (!quiz) {
+    return;
+  }
 
-  renderHeader();
+  state.isAnswered = true;
   elements.resultPanel.classList.remove("hidden");
-  elements.resultTag.textContent = isCorrect ? "정답" : "오답";
-  elements.resultTag.classList.toggle("wrong", !isCorrect);
-  elements.resultTitle.textContent = isCorrect
-    ? `좋아요, ${state.todayQuiz.answer} 감각이 살아있어요`
-    : "괜찮아요, 내일 다시 맞히면 됩니다";
-  elements.resultExplanation.textContent = state.todayQuiz.explanation;
+  elements.resultTag.textContent = result.isCorrect ? "정답" : "오답";
+  elements.resultTag.classList.toggle("wrong", !result.isCorrect);
+  elements.resultTitle.textContent = result.isCorrect
+    ? `좋아요, ${quiz.answer} 감각이 살아있어요`
+    : "괜찮아요. 바로 다음 문제로 회복하면 됩니다";
+  elements.resultExplanation.textContent = quiz.explanation;
   elements.resultStreak.textContent = state.store.streak;
-  elements.personaText.textContent = getPersonaText(state.store.streak, state.store.combo, isCorrect);
+  elements.personaText.textContent = getPersonaText(state.store.streak, state.store.combo, result.isCorrect);
 
   elements.submitButton.disabled = true;
-  elements.submitButton.textContent = "오늘의 퀴즈 완료";
+  elements.submitButton.textContent = "이번 문제 완료";
+
   [...elements.choiceList.children].forEach((node) => {
     node.disabled = true;
-    if (node.textContent.endsWith(state.todayQuiz.answer)) {
+    if (node.textContent.endsWith(quiz.answer)) {
       node.classList.add("active");
     }
   });
@@ -275,6 +308,14 @@ function hideResult() {
   elements.resultPanel.classList.add("hidden");
   elements.submitButton.disabled = false;
   elements.submitButton.textContent = "정답 확인";
+  [...elements.choiceList.children].forEach((node) => {
+    node.disabled = false;
+    node.classList.remove("active");
+  });
+}
+
+function hideModePanel() {
+  elements.modePanel.classList.add("hidden");
 }
 
 function renderWrongNotes() {
@@ -299,54 +340,39 @@ function renderWrongNotes() {
   });
 }
 
-function bindSwipe(card) {
-  card.addEventListener("pointerdown", (event) => {
-    if (state.isAnswered) {
-      return;
-    }
-    state.drag.active = true;
-    state.drag.startX = event.clientX;
-    card.classList.add("dragging");
-  });
+function advanceToNextQuiz() {
+  hideResult();
 
-  window.addEventListener("pointermove", (event) => {
-    if (!state.drag.active) {
-      return;
-    }
-    state.drag.currentX = event.clientX - state.drag.startX;
-    const rotate = state.drag.currentX / 20;
-    card.style.transform = `translateX(${state.drag.currentX}px) rotate(${rotate}deg)`;
-  });
+  if (state.currentIndex + 1 < state.quizzes.length) {
+    state.currentIndex += 1;
+    state.currentQuiz = state.quizzes[state.currentIndex];
+    renderHeader();
+    renderQuiz();
+    return;
+  }
 
-  window.addEventListener("pointerup", () => {
-    if (!state.drag.active) {
-      return;
-    }
-    const distance = state.drag.currentX;
-    state.drag.active = false;
-    state.drag.currentX = 0;
-    card.classList.remove("dragging");
-    card.style.transform = "";
+  if (currentMode === "daily") {
+    showInfiniteOption();
+    return;
+  }
 
-    if (Math.abs(distance) < 120) {
-      return;
-    }
+  loadQuizzes();
+}
 
-    if (distance > 0) {
-      elements.submitButton.click();
-    } else {
-      elements.skipButton.click();
-    }
-  });
+function showInfiniteOption() {
+  elements.modePanel.classList.remove("hidden");
+  elements.questionText.textContent = "오늘의 Daily 5를 모두 완료했어요.";
+  elements.choiceList.innerHTML = "";
+  elements.progressLabel.textContent = "Daily Clear";
+}
+
+function getSolvedKey(quizId) {
+  return `${getTodayKey()}-${quizId}`;
 }
 
 function getTodayKey() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-function getTodayAnswerKey() {
-  return `${getTodayKey()}-${state.todayQuiz?.id ?? "daily-quiz"}`;
 }
 
 function getRelativeDayKey(offset) {
@@ -364,7 +390,7 @@ function formatDateLabel(date) {
 }
 
 function getPersonaText(streak, combo, isCorrect) {
-  if (isCorrect && combo >= 3) {
+  if (isCorrect && combo >= 5) {
     return "상위 1% IT 지식인";
   }
   if (streak >= 7) {
@@ -377,13 +403,14 @@ function getPersonaText(streak, combo, isCorrect) {
 }
 
 function downloadShareImage() {
-  const canvas = elements.shareCanvas;
-  const ctx = canvas.getContext("2d");
-  const answered = state.store.answeredDates[getTodayAnswerKey()];
-  if (!answered || !state.todayQuiz) {
+  const quiz = state.currentQuiz;
+  const solved = quiz ? state.store.solvedQuizIds[getSolvedKey(quiz.id)] : null;
+  if (!quiz || !solved) {
     return;
   }
 
+  const canvas = elements.shareCanvas;
+  const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#eff5ff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -403,14 +430,14 @@ function downloadShareImage() {
 
   ctx.fillStyle = "#0f172a";
   ctx.font = "800 72px SUIT, sans-serif";
-  ctx.fillText(answered.isCorrect ? "오늘도 정답!" : "내일 다시 도전!", 170, 270);
+  ctx.fillText(solved.isCorrect ? "오늘도 정답!" : "다음 문제로 회복!", 170, 270);
 
   ctx.font = "600 38px SUIT, sans-serif";
-  wrapText(ctx, state.todayQuiz.question, 170, 360, 740, 56);
+  wrapText(ctx, quiz.question, 170, 360, 740, 56);
 
   ctx.fillStyle = "#334155";
   ctx.font = "600 34px SUIT, sans-serif";
-  ctx.fillText(`정답: ${state.todayQuiz.answer}`, 170, 540);
+  ctx.fillText(`정답: ${quiz.answer}`, 170, 540);
 
   ctx.fillStyle = "#0f172a";
   ctx.font = "700 46px SUIT, sans-serif";
@@ -463,6 +490,15 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
   if (line) {
     ctx.fillText(line.trim(), x, y + lineHeight * lineIndex);
   }
+}
+
+function shuffle(items) {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
 }
 
 function escapeHtml(value) {
