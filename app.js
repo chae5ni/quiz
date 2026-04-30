@@ -55,22 +55,52 @@ async function init() {
 }
 
 async function loadQuizzes() {
-  let query = supabaseClient.from("quizzes").select("*");
-
   if (currentMode === "daily") {
-    const today = getTodayKey();
-    query = query
-      .gte("created_at", `${today}T00:00:00`)
-      .lt("created_at", `${today}T23:59:59.999`)
+    const latestBatch = await getLatestBatchId();
+    if (!latestBatch) {
+      elements.questionText.textContent = "오늘 생성된 문제 5개가 아직 없어요.";
+      return;
+    }
+
+    const { data, error } = await supabaseClient
+      .from("quizzes")
+      .select("*")
+      .eq("batch_id", latestBatch)
       .order("daily_order", { ascending: true })
       .order("created_at", { ascending: true })
       .limit(5);
-  } else {
-    query = query.order("created_at", { ascending: false }).limit(50);
+
+    handleLoadedQuizzes(data, error, currentMode);
+    return;
   }
 
-  const { data, error } = await query;
+  const { data, error } = await supabaseClient
+    .from("quizzes")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50);
 
+  handleLoadedQuizzes(data, error, currentMode);
+}
+
+async function getLatestBatchId() {
+  const { data, error } = await supabaseClient
+    .from("quizzes")
+    .select("batch_id, created_at")
+    .not("batch_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("최신 배치를 찾지 못했어요:", error);
+    elements.questionText.textContent = "Supabase에서 문제를 불러오지 못했어요.";
+    return null;
+  }
+
+  return data?.[0]?.batch_id ?? null;
+}
+
+function handleLoadedQuizzes(data, error, mode) {
   if (error) {
     console.error("데이터 로드 실패:", error);
     elements.questionText.textContent = "Supabase에서 문제를 불러오지 못했어요.";
@@ -80,11 +110,11 @@ async function loadQuizzes() {
   const quizzes = (data || []).map(normalizeQuizRecord);
   if (!quizzes.length) {
     elements.questionText.textContent =
-      currentMode === "daily" ? "오늘 생성된 문제 5개가 아직 없어요." : "추가로 가져올 문제가 없어요.";
+      mode === "daily" ? "오늘 생성된 문제 5개가 아직 없어요." : "추가로 가져올 문제가 없어요.";
     return;
   }
 
-  state.quizzes = currentMode === "daily" ? quizzes : shuffle(quizzes);
+  state.quizzes = mode === "daily" ? quizzes : shuffle(quizzes);
   state.currentIndex = 0;
   state.currentQuiz = state.quizzes[0];
   state.isAnswered = false;
