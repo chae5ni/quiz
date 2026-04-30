@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>1분 IT 퀴즈</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=SUIT:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero-panel">
+        <div class="hero-copy">
+          <p class="eyebrow">Daily bite-sized learning</p>
+          <h1>1분 IT 퀴즈</h1>
+          <p class="hero-text">
+            출근 전에 1문제. 최신 기술 트렌드와 개발 문법을 가볍게 익히고,
+            스트릭으로 매일 이어가세요.
+          </p>
+        </div>
+        <div class="hero-stats">
+          <article class="stat-chip">
+            <span>오늘의 난이도</span>
+            <strong id="difficultyChip">-</strong>
+          </article>
+          <article class="stat-chip accent">
+            <span>내 스트릭</span>
+            <strong><span id="streakCount">0</span>일</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="deck-section">
+        <div class="deck-header">
+          <div>
+            <p class="section-label">TODAY</p>
+            <h2 id="quizDateLabel">오늘의 문제</h2>
+          </div>
+          <button id="notifyButton" class="ghost-button" type="button">
+            알림 받기
+          </button>
+        </div>
+
+        <article id="quizCard" class="quiz-card">
+          <div class="quiz-meta">
+            <span id="categoryBadge" class="badge">Trend</span>
+            <span id="comboBadge" class="combo-badge">Combo x0</span>
+          </div>
+
+          <div class="swipe-hint">
+            <span>좌우로 넘기거나 아래 버튼으로 답하세요</span>
+          </div>
+
+          <div class="question-block">
+            <p id="questionLabel" class="question-label">Q.</p>
+            <h3 id="questionText">문제를 불러오는 중...</h3>
+          </div>
+
+          <div id="choiceList" class="choice-list"></div>
+
+          <div class="action-row">
+            <button id="skipButton" class="secondary-button" type="button">
+              내일 다시 보기
+            </button>
+            <button id="submitButton" class="primary-button" type="button">
+              정답 확인
+            </button>
+          </div>
+        </article>
+
+        <article id="resultPanel" class="result-panel hidden">
+          <div class="result-main">
+            <p id="resultTag" class="result-tag">정답</p>
+            <h3 id="resultTitle">오늘도 쌓이는 IT 감각</h3>
+            <p id="resultExplanation" class="result-explanation"></p>
+          </div>
+          <div class="result-stats">
+            <div>
+              <span>정답률 감성</span>
+              <strong id="personaText">상위 1% 감각</strong>
+            </div>
+            <div>
+              <span>현재 스트릭</span>
+              <strong><span id="resultStreak">0</span>일</strong>
+            </div>
+          </div>
+          <div class="result-actions">
+            <button id="shareButton" class="primary-button" type="button">
+              결과 이미지 저장
+            </button>
+            <button id="reviewButton" class="secondary-button" type="button">
+              오답 노트 보기
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <section class="notes-section">
+        <div class="deck-header">
+          <div>
+            <p class="section-label">REVIEW</p>
+            <h2>오답 노트</h2>
+          </div>
+          <span id="wrongCount" class="count-pill">0개</span>
+        </div>
+        <div id="wrongNoteList" class="wrong-note-list">
+          <article class="empty-note">아직 저장된 오답이 없어요.</article>
+        </div>
+      </section>
+    </main>
+
+    <canvas id="shareCanvas" width="1080" height="1350" class="hidden"></canvas>
+    <script src="./app.js" defer></script>
+  </body>
+</html>
