@@ -199,9 +199,48 @@ def save_quizzes_to_db(quizzes: list[dict[str, Any]]):
     return supabase.table("quizzes").insert(rows).execute()
 
 
+def save_quizzes_with_retry(
+    quizzes: list[dict[str, Any]], max_retries: int = 3, delay_seconds: int = 10
+) -> None:
+    last_error: Exception | None = None
+    target_url = get_supabase_url()
+    print(f"Saving quizzes to Supabase URL: {target_url}")
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            save_quizzes_to_db(quizzes)
+            return
+        except Exception as error:  # pragma: no cover - depends on external API behavior
+            last_error = error
+            message = str(error)
+            is_retryable = any(
+                token in message
+                for token in (
+                    "ConnectError",
+                    "Name or service not known",
+                    "Temporary failure in name resolution",
+                    "503",
+                    "502",
+                    "504",
+                )
+            )
+            if not is_retryable or attempt == max_retries:
+                raise
+
+            print(
+                f"Supabase 연결이 일시적으로 실패했습니다. "
+                f"{attempt}/{max_retries} 재시도 후 {delay_seconds}초 대기합니다."
+            )
+            time.sleep(delay_seconds)
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Supabase 저장 재시도 로직이 비정상 종료되었습니다.")
+
+
 def generate_and_save_quizzes() -> None:
     quizzes = generate_with_retry()
-    save_quizzes_to_db(quizzes)
+    save_quizzes_with_retry(quizzes)
     print(f"Saved {len(quizzes)} quizzes to Supabase.")
 
 
