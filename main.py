@@ -9,6 +9,8 @@ import sys
 import time
 import webbrowser
 from pathlib import Path
+from datetime import datetime, timezone
+from math import ceil
 from typing import Any
 
 try:
@@ -184,12 +186,9 @@ def generate_with_retry(max_retries: int = 3, delay_seconds: int = 10) -> list[d
     raise RuntimeError("퀴즈 생성 재시도 로직이 비정상 종료되었습니다.")
 
 
-def save_quizzes_to_db(quizzes: list[dict[str, Any]]):
+def save_quizzes_to_db(quizzes: list[dict[str, Any]], batch_id: str | None = None):
     supabase = get_supabase_client()
-    batch_id = os.getenv("QUIZ_BATCH_ID")
     if not batch_id:
-        from datetime import datetime, timezone
-
         batch_id = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     rows = [
@@ -200,7 +199,10 @@ def save_quizzes_to_db(quizzes: list[dict[str, Any]]):
 
 
 def save_quizzes_with_retry(
-    quizzes: list[dict[str, Any]], max_retries: int = 3, delay_seconds: int = 10
+    quizzes: list[dict[str, Any]],
+    batch_id: str | None = None,
+    max_retries: int = 3,
+    delay_seconds: int = 10,
 ) -> None:
     last_error: Exception | None = None
     target_url = get_supabase_url()
@@ -208,7 +210,7 @@ def save_quizzes_with_retry(
 
     for attempt in range(1, max_retries + 1):
         try:
-            save_quizzes_to_db(quizzes)
+            save_quizzes_to_db(quizzes, batch_id=batch_id)
             return
         except Exception as error:  # pragma: no cover - depends on external API behavior
             last_error = error
@@ -244,6 +246,27 @@ def generate_and_save_quizzes() -> None:
     print(f"Saved {len(quizzes)} quizzes to Supabase.")
 
 
+def seed_quizzes(total_count: int = 100) -> None:
+    if total_count <= 0:
+        raise RuntimeError("seed 개수는 1 이상이어야 합니다.")
+
+    batch_count = ceil(total_count / 5)
+    created_count = 0
+    seed_prefix = datetime.now(timezone.utc).strftime("seed-%Y%m%d-%H%M%S")
+
+    for batch_index in range(batch_count):
+        batch_id = f"{seed_prefix}-{batch_index + 1:02d}"
+        quizzes = generate_with_retry()
+        if batch_index == batch_count - 1 and total_count % 5:
+            quizzes = quizzes[: total_count % 5]
+        save_quizzes_with_retry(quizzes, batch_id=batch_id)
+        created_count += len(quizzes)
+        print(f"Seed batch {batch_index + 1}/{batch_count} saved: {len(quizzes)} quizzes")
+        time.sleep(1)
+
+    print(f"Seed completed. Saved {created_count} quizzes to Supabase.")
+
+
 def serve() -> None:
     with ReusableTCPServer((HOST, PORT), AppRequestHandler) as server:
         url = f"http://{HOST}:{PORT}/index.html"
@@ -261,9 +284,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("serve", "generate"),
+        choices=("serve", "generate", "seed"),
         default="serve",
-        help="serve the local web app or generate quizzes into Supabase",
+        help="serve the local web app, generate daily quizzes, or seed many quizzes into Supabase",
+    )
+    parser.add_argument(
+        "--count",
+        type=int,
+        default=100,
+        help="number of quizzes to create when using the seed command",
     )
     return parser.parse_args()
 
@@ -272,6 +301,9 @@ def main() -> int:
     args = parse_args()
     if args.command == "generate":
         generate_and_save_quizzes()
+        return 0
+    if args.command == "seed":
+        seed_quizzes(total_count=args.count)
         return 0
 
     serve()

@@ -31,11 +31,20 @@ set GEMINI_API_KEY=여기에_gemini_key
 py -3 main.py generate
 ```
 
+초기 문제를 한 번 많이 채우려면:
+
+```bash
+set SUPABASE_SERVICE_KEY=여기에_service_role_key
+set GEMINI_API_KEY=여기에_gemini_key
+py -3 main.py seed --count 100
+```
+
 ## 동작 방식
 
 - Daily 모드: 오늘 생성된 문제 5개를 순서대로 불러옵니다.
 - Infinite 모드: Daily 5를 다 풀면 최신 문제들을 섞어서 계속 이어서 풉니다.
 - GitHub Actions: 매일 아침 `main.py generate`를 실행해 Supabase에 5문제를 저장합니다.
+- 초기 적재: `main.py seed --count 100` 같은 방식으로 과거 문제 풀을 먼저 채울 수 있습니다.
 
 ## 필요한 테이블 컬럼 예시
 

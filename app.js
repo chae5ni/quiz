@@ -1,4 +1,4 @@
-const STORAGE_KEY = "one-minute-it-quiz-state-v3";
+const STORAGE_KEY = "one-minute-it-quiz-state-v4";
 const SUPABASE_URL = "https://inpozrhrlofyhenqfucy.supabase.co";
 const SUPABASE_KEY = window.SUPABASE_PUBLISHABLE_KEY || "여기에 Publishable key";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -11,6 +11,7 @@ const state = {
   currentQuiz: null,
   selectedChoice: null,
   isAnswered: false,
+  latestBatchId: null,
   store: loadStore(),
 };
 
@@ -35,6 +36,7 @@ const elements = {
   nextButton: document.getElementById("nextButton"),
   shareButton: document.getElementById("shareButton"),
   modePanel: document.getElementById("modePanel"),
+  modeTitle: document.getElementById("modeTitle"),
   infiniteButton: document.getElementById("infiniteButton"),
   reviewButton: document.getElementById("reviewButton"),
   wrongNoteList: document.getElementById("wrongNoteList"),
@@ -56,31 +58,64 @@ async function init() {
 
 async function loadQuizzes() {
   if (currentMode === "daily") {
-    const latestBatch = await getLatestBatchId();
-    if (!latestBatch) {
-      elements.questionText.textContent = "오늘 생성된 문제 5개가 아직 없어요.";
-      return;
-    }
+    await loadDailyQuizzes();
+    return;
+  }
+  await loadInfiniteQuizzes();
+}
 
-    const { data, error } = await supabaseClient
+async function loadDailyQuizzes() {
+  const latestBatch = await getLatestBatchId();
+  state.latestBatchId = latestBatch;
+
+  if (!latestBatch) {
+    const fallback = await supabaseClient
       .from("quizzes")
       .select("*")
-      .eq("batch_id", latestBatch)
-      .order("daily_order", { ascending: true })
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(5);
 
-    handleLoadedQuizzes(data, error, currentMode);
+    handleLoadedQuizzes(
+      fallback.data ? [...fallback.data].reverse() : fallback.data,
+      fallback.error,
+      "daily"
+    );
     return;
   }
 
   const { data, error } = await supabaseClient
     .from("quizzes")
     .select("*")
-    .order("created_at", { ascending: false })
-    .limit(50);
+    .eq("batch_id", latestBatch)
+    .order("daily_order", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(5);
 
-  handleLoadedQuizzes(data, error, currentMode);
+  handleLoadedQuizzes(data, error, "daily");
+}
+
+async function loadInfiniteQuizzes() {
+  let query = supabaseClient.from("quizzes").select("*").order("created_at", { ascending: false }).limit(100);
+
+  if (state.latestBatchId) {
+    query = query.neq("batch_id", state.latestBatchId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    handleLoadedQuizzes(null, error, "infinite");
+    return;
+  }
+
+  const solvedTodayKeys = new Set(Object.keys(state.store.solvedQuizIds));
+  const filtered = (data || []).filter((quiz) => !solvedTodayKeys.has(getSolvedKey(quiz.id)));
+
+  if (!filtered.length) {
+    showNoInfiniteQuizzes();
+    return;
+  }
+
+  handleLoadedQuizzes(shuffle(filtered), null, "infinite");
 }
 
 async function getLatestBatchId() {
@@ -114,7 +149,7 @@ function handleLoadedQuizzes(data, error, mode) {
     return;
   }
 
-  state.quizzes = mode === "daily" ? quizzes : shuffle(quizzes);
+  state.quizzes = quizzes;
   state.currentIndex = 0;
   state.currentQuiz = state.quizzes[0];
   state.isAnswered = false;
@@ -124,6 +159,15 @@ function handleLoadedQuizzes(data, error, mode) {
   hideModePanel();
   renderHeader();
   renderQuiz();
+}
+
+function showNoInfiniteQuizzes() {
+  hideResult();
+  elements.modePanel.classList.remove("hidden");
+  elements.modeTitle.textContent = "무제한 모드용 추가 문제가 아직 없어요";
+  elements.questionText.textContent = "오늘의 5문제 외에는 아직 더 보여줄 문제가 없어요.";
+  elements.progressLabel.textContent = "Infinite Waiting";
+  elements.choiceList.innerHTML = "";
 }
 
 function normalizeQuizRecord(record) {
@@ -136,6 +180,7 @@ function normalizeQuizRecord(record) {
     answer: record.answer ?? "",
     explanation: record.explanation ?? "해설이 아직 준비되지 않았어요.",
     createdAt: record.created_at ?? null,
+    batchId: record.batch_id ?? null,
   };
 }
 
@@ -391,7 +436,8 @@ function advanceToNextQuiz() {
 
 function showInfiniteOption() {
   elements.modePanel.classList.remove("hidden");
-  elements.questionText.textContent = "오늘의 Daily 5를 모두 완료했어요.";
+  elements.modeTitle.textContent = "오늘의 5문제를 모두 풀었어요";
+  elements.questionText.textContent = "계속 감을 유지하고 싶다면 무제한 모드로 넘어가세요.";
   elements.choiceList.innerHTML = "";
   elements.progressLabel.textContent = "Daily Clear";
 }
