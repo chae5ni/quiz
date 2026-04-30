@@ -26,7 +26,8 @@ except ImportError:  # pragma: no cover - optional dependency for local serving
 HOST = "127.0.0.1"
 PORT = 8080
 ROOT = Path(__file__).resolve().parent
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://inpozrhlofyhenqfucy.supabase.co")
+DEFAULT_SUPABASE_URL = "https://inpozrhlofyhenqfucy.supabase.co"
+SUPABASE_URL = os.getenv("SUPABASE_URL", DEFAULT_SUPABASE_URL)
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -44,14 +45,27 @@ class ReusableTCPServer(socketserver.TCPServer):
     allow_reuse_address = True
 
 
+def normalize_env_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().strip("\"'").strip()
+    return normalized or None
+
+
+def get_supabase_url() -> str:
+    candidate = normalize_env_value(SUPABASE_URL) or DEFAULT_SUPABASE_URL
+    if not candidate.startswith("https://") or "supabase.co" not in candidate:
+        print("SUPABASE_URL 형식이 잘못되어 기본 URL로 대체합니다.")
+        return DEFAULT_SUPABASE_URL
+    return candidate.rstrip("/")
+
+
 def get_supabase_client() -> Client:
     if create_client is None:
         raise RuntimeError("supabase 패키지가 없습니다. `pip install supabase`를 실행하세요.")
-    if not SUPABASE_URL:
-        raise RuntimeError("SUPABASE_URL 환경변수가 필요합니다.")
     if not SUPABASE_SERVICE_KEY:
         raise RuntimeError("SUPABASE_SERVICE_KEY 또는 SUPABASE_KEY 환경변수가 필요합니다.")
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    return create_client(get_supabase_url(), normalize_env_value(SUPABASE_SERVICE_KEY))
 
 
 def get_genai_client():
