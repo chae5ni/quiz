@@ -25,7 +25,7 @@ py -3 main.py
 로컬에서 생성기만 실행하려면:
 
 ```bash
-set SUPABASE_URL=https://inpozrhlofyhenqfucy.supabase.co
+set SUPABASE_URL=https://inpozrhrlofyhenqfucy.supabase.co
 set SUPABASE_SERVICE_KEY=여기에_service_role_key
 set GEMINI_API_KEY=여기에_gemini_key
 py -3 main.py generate

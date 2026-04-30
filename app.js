@@ -1,5 +1,5 @@
 const STORAGE_KEY = "one-minute-it-quiz-state-v3";
-const SUPABASE_URL = "https://inpozrhlofyhenqfucy.supabase.co";
+const SUPABASE_URL = "https://inpozrhrlofyhenqfucy.supabase.co";
 const SUPABASE_KEY = window.SUPABASE_PUBLISHABLE_KEY || "여기에 Publishable key";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 

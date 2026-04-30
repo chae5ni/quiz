@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - optional dependency for local serving
 HOST = "127.0.0.1"
 PORT = 8080
 ROOT = Path(__file__).resolve().parent
-DEFAULT_SUPABASE_URL = "https://inpozrhlofyhenqfucy.supabase.co"
+DEFAULT_SUPABASE_URL = "https://inpozrhrlofyhenqfucy.supabase.co"
 SUPABASE_URL = os.getenv("SUPABASE_URL", DEFAULT_SUPABASE_URL)
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
