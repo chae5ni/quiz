@@ -6,6 +6,7 @@ import json
 import os
 import socketserver
 import sys
+import time
 import webbrowser
 from pathlib import Path
 from typing import Any
@@ -143,6 +144,32 @@ def generate_5_quizzes() -> list[dict[str, Any]]:
     return payload
 
 
+def generate_with_retry(max_retries: int = 3, delay_seconds: int = 10) -> list[dict[str, Any]]:
+    last_error: Exception | None = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            return generate_5_quizzes()
+        except Exception as error:  # pragma: no cover - depends on external API behavior
+            last_error = error
+            message = str(error)
+            is_retryable = any(
+                token in message for token in ("503", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "429")
+            )
+            if not is_retryable or attempt == max_retries:
+                raise
+
+            print(
+                f"Gemini 서버가 바쁜 상태입니다. "
+                f"{attempt}/{max_retries} 재시도 후 {delay_seconds}초 대기합니다."
+            )
+            time.sleep(delay_seconds)
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("퀴즈 생성 재시도 로직이 비정상 종료되었습니다.")
+
+
 def save_quizzes_to_db(quizzes: list[dict[str, Any]]):
     supabase = get_supabase_client()
     batch_id = os.getenv("QUIZ_BATCH_ID")
@@ -159,7 +186,7 @@ def save_quizzes_to_db(quizzes: list[dict[str, Any]]):
 
 
 def generate_and_save_quizzes() -> None:
-    quizzes = generate_5_quizzes()
+    quizzes = generate_with_retry()
     save_quizzes_to_db(quizzes)
     print(f"Saved {len(quizzes)} quizzes to Supabase.")
 
