@@ -118,6 +118,13 @@ button {
   font-size: 28px;
 }
 
+.streak-value {
+  display: inline-flex !important;
+  align-items: baseline;
+  gap: 2px;
+  white-space: nowrap;
+}
+
 .stat-chip.accent {
   background: linear-gradient(135deg, #0a66ff, #38a7ff);
   color: #fff;
@@ -232,7 +239,9 @@ button {
 
 .question-block h3 {
   font-size: clamp(24px, 4vw, 36px);
-  line-height: 1.2;
+  line-height: 1.35;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .choice-list {

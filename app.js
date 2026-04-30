@@ -1,4 +1,4 @@
-const STORAGE_KEY = "one-minute-it-quiz-state-v4";
+const STORAGE_KEY = "one-minute-it-quiz-state-v5";
 const SUPABASE_URL = "https://inpozrhrlofyhenqfucy.supabase.co";
 const SUPABASE_KEY = window.SUPABASE_PUBLISHABLE_KEY || "여기에 Publishable key";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -16,6 +16,7 @@ const state = {
 };
 
 const elements = {
+  quizCard: document.getElementById("quizCard"),
   modeChip: document.getElementById("modeChip"),
   streakCount: document.getElementById("streakCount"),
   quizDateLabel: document.getElementById("quizDateLabel"),
@@ -45,8 +46,8 @@ const elements = {
 };
 
 init().catch((error) => {
-  elements.questionText.textContent = "문제를 불러오지 못했어요.";
   console.error(error);
+  showEmptyState("문제를 불러오지 못했어요.");
 });
 
 async function init() {
@@ -69,17 +70,7 @@ async function loadDailyQuizzes() {
   state.latestBatchId = latestBatch;
 
   if (!latestBatch) {
-    const fallback = await supabaseClient
-      .from("quizzes")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(5);
-
-    handleLoadedQuizzes(
-      fallback.data ? [...fallback.data].reverse() : fallback.data,
-      fallback.error,
-      "daily"
-    );
+    showEmptyState("오늘 생성된 문제 5개가 아직 없어요.");
     return;
   }
 
@@ -91,31 +82,65 @@ async function loadDailyQuizzes() {
     .order("created_at", { ascending: true })
     .limit(5);
 
-  handleLoadedQuizzes(data, error, "daily");
+  const quizzes = normalizeLoadedQuizzes(data, error, "오늘 생성된 문제 5개를 불러오지 못했어요.");
+  if (!quizzes) {
+    return;
+  }
+
+  state.quizzes = quizzes;
+
+  if (isDailyBatchCompleted()) {
+    showDailyClear();
+    return;
+  }
+
+  const nextIndex = getNextUnprocessedDailyIndex();
+  state.currentIndex = nextIndex === -1 ? 0 : nextIndex;
+  state.currentQuiz = state.quizzes[state.currentIndex];
+  state.selectedChoice = null;
+  state.isAnswered = false;
+
+  showQuizCard();
+  hideModePanel();
+  hideResult();
+  renderHeader();
+  renderQuiz();
 }
 
 async function loadInfiniteQuizzes() {
-  let query = supabaseClient.from("quizzes").select("*").order("created_at", { ascending: false }).limit(100);
+  let query = supabaseClient
+    .from("quizzes")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(100);
 
   if (state.latestBatchId) {
     query = query.neq("batch_id", state.latestBatchId);
   }
 
   const { data, error } = await query;
-  if (error) {
-    handleLoadedQuizzes(null, error, "infinite");
+  const quizzes = normalizeLoadedQuizzes(data, error, "무제한 모드 문제를 불러오지 못했어요.");
+  if (!quizzes) {
     return;
   }
 
-  const solvedTodayKeys = new Set(Object.keys(state.store.solvedQuizIds));
-  const filtered = (data || []).filter((quiz) => !solvedTodayKeys.has(getSolvedKey(quiz.id)));
-
-  if (!filtered.length) {
+  const unseen = quizzes.filter((quiz) => getQuizStatus(quiz.id) === "unseen");
+  if (!unseen.length) {
     showNoInfiniteQuizzes();
     return;
   }
 
-  handleLoadedQuizzes(shuffle(filtered), null, "infinite");
+  state.quizzes = shuffle(unseen);
+  state.currentIndex = 0;
+  state.currentQuiz = state.quizzes[0];
+  state.selectedChoice = null;
+  state.isAnswered = false;
+
+  showQuizCard();
+  hideModePanel();
+  hideResult();
+  renderHeader();
+  renderQuiz();
 }
 
 async function getLatestBatchId() {
@@ -128,46 +153,27 @@ async function getLatestBatchId() {
 
   if (error) {
     console.error("최신 배치를 찾지 못했어요:", error);
-    elements.questionText.textContent = "Supabase에서 문제를 불러오지 못했어요.";
+    showEmptyState("Supabase에서 문제를 불러오지 못했어요.");
     return null;
   }
 
   return data?.[0]?.batch_id ?? null;
 }
 
-function handleLoadedQuizzes(data, error, mode) {
+function normalizeLoadedQuizzes(data, error, emptyMessage) {
   if (error) {
     console.error("데이터 로드 실패:", error);
-    elements.questionText.textContent = "Supabase에서 문제를 불러오지 못했어요.";
-    return;
+    showEmptyState(emptyMessage);
+    return null;
   }
 
   const quizzes = (data || []).map(normalizeQuizRecord);
   if (!quizzes.length) {
-    elements.questionText.textContent =
-      mode === "daily" ? "오늘 생성된 문제 5개가 아직 없어요." : "추가로 가져올 문제가 없어요.";
-    return;
+    showEmptyState(emptyMessage);
+    return null;
   }
 
-  state.quizzes = quizzes;
-  state.currentIndex = 0;
-  state.currentQuiz = state.quizzes[0];
-  state.isAnswered = false;
-  state.selectedChoice = null;
-
-  hideResult();
-  hideModePanel();
-  renderHeader();
-  renderQuiz();
-}
-
-function showNoInfiniteQuizzes() {
-  hideResult();
-  elements.modePanel.classList.remove("hidden");
-  elements.modeTitle.textContent = "무제한 모드용 추가 문제가 아직 없어요";
-  elements.questionText.textContent = "오늘의 5문제 외에는 아직 더 보여줄 문제가 없어요.";
-  elements.progressLabel.textContent = "Infinite Waiting";
-  elements.choiceList.innerHTML = "";
+  return quizzes;
 }
 
 function normalizeQuizRecord(record) {
@@ -179,7 +185,6 @@ function normalizeQuizRecord(record) {
     choices: normalizeChoices(record),
     answer: record.answer ?? "",
     explanation: record.explanation ?? "해설이 아직 준비되지 않았어요.",
-    createdAt: record.created_at ?? null,
     batchId: record.batch_id ?? null,
   };
 }
@@ -187,12 +192,6 @@ function normalizeQuizRecord(record) {
 function normalizeChoices(record) {
   if (Array.isArray(record.choices) && record.choices.length) {
     return record.choices;
-  }
-
-  const candidateKeys = ["option_1", "option_2", "option_3", "option_4"];
-  const choices = candidateKeys.map((key) => record[key]).filter(Boolean);
-  if (choices.length) {
-    return choices;
   }
 
   if (record.answer === "O" || record.answer === "X") {
@@ -220,12 +219,28 @@ function createInitialStore() {
     combo: 0,
     lastSolvedDate: null,
     solvedQuizIds: {},
+    skippedQuizIds: {},
     wrongNotes: [],
   };
 }
 
 function saveStore() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.store));
+}
+
+function bindEvents() {
+  elements.submitButton.addEventListener("click", submitAnswer);
+  elements.skipButton.addEventListener("click", skipCurrentQuiz);
+  elements.nextButton.addEventListener("click", goToNextQuiz);
+  elements.shareButton.addEventListener("click", downloadShareImage);
+  elements.reviewButton.addEventListener("click", () => {
+    document.querySelector(".notes-section").scrollIntoView({ behavior: "smooth" });
+  });
+  elements.infiniteButton.addEventListener("click", async () => {
+    currentMode = "infinite";
+    await loadQuizzes();
+  });
+  elements.notifyButton.addEventListener("click", handleNotifyClick);
 }
 
 function renderHeader() {
@@ -247,7 +262,7 @@ function renderQuiz() {
   elements.questionText.textContent = quiz.question;
   elements.progressLabel.textContent =
     currentMode === "daily"
-      ? `${Math.min(state.currentIndex + 1, 5)} / 5 진행 중`
+      ? `${getDisplayedDailyStep()} / ${state.quizzes.length} 진행 중`
       : `${state.currentIndex + 1}번째 무제한 문제`;
 
   elements.choiceList.innerHTML = "";
@@ -260,40 +275,31 @@ function renderQuiz() {
     elements.choiceList.appendChild(button);
   });
 
-  const solved = state.store.solvedQuizIds[getSolvedKey(quiz.id)];
-  if (solved) {
-    showAnsweredState(solved);
-  } else {
-    state.isAnswered = false;
-    state.selectedChoice = null;
-    hideResult();
+  state.selectedChoice = null;
+  state.isAnswered = false;
+  updateSubmitState();
+
+  if (getQuizStatus(quiz.id) === "solved") {
+    showAnsweredState(state.store.solvedQuizIds[getSolvedKey(quiz.id)]);
+    return;
   }
+
+  hideResult();
 }
 
 function selectChoice(choice, button) {
   if (state.isAnswered) {
     return;
   }
+
   state.selectedChoice = choice;
   [...elements.choiceList.children].forEach((node) => node.classList.remove("active"));
   button.classList.add("active");
+  updateSubmitState();
 }
 
-function bindEvents() {
-  elements.submitButton.addEventListener("click", submitAnswer);
-  elements.skipButton.addEventListener("click", advanceToNextQuiz);
-  elements.notifyButton.addEventListener("click", () => {
-    window.alert("MVP에서는 실제 푸시 대신 온보딩만 제공해요. 다음 단계에서 웹 푸시나 앱 푸시로 연결하면 됩니다.");
-  });
-  elements.nextButton.addEventListener("click", advanceToNextQuiz);
-  elements.infiniteButton.addEventListener("click", async () => {
-    currentMode = "infinite";
-    await loadQuizzes();
-  });
-  elements.reviewButton.addEventListener("click", () => {
-    document.querySelector(".notes-section").scrollIntoView({ behavior: "smooth" });
-  });
-  elements.shareButton.addEventListener("click", downloadShareImage);
+function updateSubmitState() {
+  elements.submitButton.disabled = state.isAnswered || !state.selectedChoice;
 }
 
 function submitAnswer() {
@@ -301,8 +307,9 @@ function submitAnswer() {
   if (!quiz || state.isAnswered) {
     return;
   }
+
   if (!state.selectedChoice) {
-    window.alert("선택지를 먼저 골라주세요.");
+    window.alert("먼저 O/X를 선택해 주세요.");
     return;
   }
 
@@ -313,12 +320,37 @@ function submitAnswer() {
     selectedChoice: state.selectedChoice,
     isCorrect,
     solvedAt: new Date().toISOString(),
+    mode: currentMode,
   };
 
   state.store.solvedQuizIds[getSolvedKey(quiz.id)] = solved;
+  delete state.store.skippedQuizIds[getSolvedKey(quiz.id)];
   saveStore();
+
+  renderHeader();
   showAnsweredState(solved);
   renderWrongNotes();
+  elements.nextButton.textContent = currentMode === "daily" && isDailyBatchCompleted() ? "완료 화면 보기" : "다음 문제";
+}
+
+function skipCurrentQuiz() {
+  const quiz = state.currentQuiz;
+  if (!quiz || state.isAnswered) {
+    return;
+  }
+
+  state.store.skippedQuizIds[getSolvedKey(quiz.id)] = {
+    skippedAt: new Date().toISOString(),
+    mode: currentMode,
+  };
+  saveStore();
+
+  if (currentMode === "daily" && isDailyBatchCompleted()) {
+    showDailyClear();
+    return;
+  }
+
+  goToNextQuiz();
 }
 
 function updateProgress(isCorrect, quiz) {
@@ -326,7 +358,7 @@ function updateProgress(isCorrect, quiz) {
   const yesterday = getRelativeDayKey(-1);
   const solvedYesterday = state.store.lastSolvedDate === yesterday;
 
-  if (currentMode === "daily") {
+  if (currentMode === "daily" && state.store.lastSolvedDate !== today) {
     state.store.streak = solvedYesterday ? state.store.streak + 1 : 1;
     state.store.lastSolvedDate = today;
   }
@@ -347,13 +379,11 @@ function updateProgress(isCorrect, quiz) {
       ...state.store.wrongNotes.filter((item) => item.id !== getSolvedKey(quiz.id)),
     ].slice(0, 50);
   }
-
-  saveStore();
 }
 
 function showAnsweredState(result) {
   const quiz = state.currentQuiz;
-  if (!quiz) {
+  if (!quiz || !result) {
     return;
   }
 
@@ -369,8 +399,6 @@ function showAnsweredState(result) {
   elements.personaText.textContent = getPersonaText(state.store.streak, state.store.combo, result.isCorrect);
 
   elements.submitButton.disabled = true;
-  elements.submitButton.textContent = "이번 문제 완료";
-
   [...elements.choiceList.children].forEach((node) => {
     node.disabled = true;
     if (node.textContent.endsWith(quiz.answer)) {
@@ -381,16 +409,12 @@ function showAnsweredState(result) {
 
 function hideResult() {
   elements.resultPanel.classList.add("hidden");
-  elements.submitButton.disabled = false;
-  elements.submitButton.textContent = "정답 확인";
+  elements.resultTag.classList.remove("wrong");
   [...elements.choiceList.children].forEach((node) => {
     node.disabled = false;
     node.classList.remove("active");
   });
-}
-
-function hideModePanel() {
-  elements.modePanel.classList.add("hidden");
+  updateSubmitState();
 }
 
 function renderWrongNotes() {
@@ -415,31 +439,135 @@ function renderWrongNotes() {
   });
 }
 
-function advanceToNextQuiz() {
+function goToNextQuiz() {
   hideResult();
 
-  if (state.currentIndex + 1 < state.quizzes.length) {
-    state.currentIndex += 1;
+  if (currentMode === "daily") {
+    const nextIndex = getNextUnprocessedDailyIndex();
+    if (nextIndex === -1) {
+      showDailyClear();
+      return;
+    }
+
+    state.currentIndex = nextIndex;
     state.currentQuiz = state.quizzes[state.currentIndex];
+    state.selectedChoice = null;
+    state.isAnswered = false;
+    showQuizCard();
+    hideModePanel();
     renderHeader();
     renderQuiz();
     return;
   }
 
-  if (currentMode === "daily") {
-    showInfiniteOption();
+  const nextIndex = state.quizzes.findIndex(
+    (quiz, index) => index > state.currentIndex && getQuizStatus(quiz.id) === "unseen"
+  );
+
+  if (nextIndex === -1) {
+    loadInfiniteQuizzes();
     return;
   }
 
-  loadQuizzes();
+  state.currentIndex = nextIndex;
+  state.currentQuiz = state.quizzes[state.currentIndex];
+  state.selectedChoice = null;
+  state.isAnswered = false;
+  showQuizCard();
+  hideModePanel();
+  renderHeader();
+  renderQuiz();
 }
 
-function showInfiniteOption() {
+function showDailyClear() {
+  currentMode = "daily";
+  renderHeader();
+  hideResult();
+  hideQuizCard();
   elements.modePanel.classList.remove("hidden");
-  elements.modeTitle.textContent = "오늘의 5문제를 모두 풀었어요";
-  elements.questionText.textContent = "계속 감을 유지하고 싶다면 무제한 모드로 넘어가세요.";
+  elements.modeTitle.textContent = "오늘의 5문제를 모두 끝냈어요";
+}
+
+function showNoInfiniteQuizzes() {
+  currentMode = "infinite";
+  renderHeader();
+  hideResult();
+  hideQuizCard();
+  elements.modePanel.classList.remove("hidden");
+  elements.modeTitle.textContent = "무제한 모드용 추가 문제가 아직 없어요";
+}
+
+function hideModePanel() {
+  elements.modePanel.classList.add("hidden");
+}
+
+function showQuizCard() {
+  elements.quizCard.classList.remove("hidden");
+}
+
+function hideQuizCard() {
+  elements.quizCard.classList.add("hidden");
+}
+
+function showEmptyState(message) {
+  showQuizCard();
+  hideModePanel();
+  hideResult();
+  elements.questionText.textContent = message;
+  elements.progressLabel.textContent = currentMode === "daily" ? "1 / 5 진행 중" : "무제한 문제 준비 중";
   elements.choiceList.innerHTML = "";
-  elements.progressLabel.textContent = "Daily Clear";
+  state.selectedChoice = null;
+  state.isAnswered = false;
+  updateSubmitState();
+}
+
+function isDailyBatchCompleted() {
+  return state.quizzes.length > 0 && state.quizzes.every((quiz) => getQuizStatus(quiz.id) !== "unseen");
+}
+
+function getNextUnprocessedDailyIndex() {
+  return state.quizzes.findIndex((quiz) => getQuizStatus(quiz.id) === "unseen");
+}
+
+function getDisplayedDailyStep() {
+  const processedCount = state.quizzes.filter((quiz) => getQuizStatus(quiz.id) !== "unseen").length;
+  return Math.min(processedCount + 1, state.quizzes.length);
+}
+
+function getQuizStatus(quizId) {
+  const key = getSolvedKey(quizId);
+  if (state.store.solvedQuizIds[key]) {
+    return "solved";
+  }
+  if (state.store.skippedQuizIds[key]) {
+    return "skipped";
+  }
+  return "unseen";
+}
+
+function handleNotifyClick() {
+  if (!("Notification" in window)) {
+    window.alert("이 브라우저에서는 알림을 지원하지 않습니다.");
+    return;
+  }
+
+  if (Notification.permission === "granted") {
+    window.alert("이미 알림이 허용되어 있어요.");
+    return;
+  }
+
+  if (Notification.permission === "denied") {
+    window.alert("브라우저 설정에서 알림 권한을 허용해 주세요.");
+    return;
+  }
+
+  Notification.requestPermission().then((permission) => {
+    if (permission === "granted") {
+      window.alert("알림 설정이 완료되었습니다.");
+      return;
+    }
+    window.alert("알림 권한이 허용되지 않았어요.");
+  });
 }
 
 function getSolvedKey(quizId) {
