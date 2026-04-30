@@ -1,0 +1,32 @@
+name: Seed AI Quiz Pool
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "How many quizzes to seed"
+        required: true
+        default: "100"
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-genai supabase
+
+      - name: Seed quiz pool
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python main.py seed --count ${{ inputs.count }}
